@@ -2,60 +2,76 @@
 require("dotenv").config();
 const express = require("express");
 const axios = require("axios");
+const https = require("https");
+const dns = require("dns");
 
 const app = express();
 app.use(express.json());
 
 const TOKEN = process.env.LINE_TOKEN;
 const PORT = process.env.PORT || 3000;
-const PUB  = process.env.PUBLIC_BASE; // เช่น https://615f1f74d354.ngrok-free.app
+const PUB  = process.env.PUBLIC_BASE; // เช่น https://<your-service>.onrender.com
 
 /** ---------- สำหรับปุ่ม Verify ของ LINE (GET /webhook) ---------- */
 app.get("/webhook", (req, res) => res.status(200).send("OK"));
 
-/** ---------- ตั้งแหล่งรูปจริงบน GitHub Pages ---------- */
-const IMAGE_SOURCE = {
-  "IMG_7937": "https://khunleedev.github.io/line-images/IMG_7937.JPG",
-  "IMG_7938": "https://khunleedev.github.io/line-images/IMG_7938.JPG",
-  "IMG_7939": "https://khunleedev.github.io/line-images/IMG_7939.JPG",
-  "IMG_7940": "https://khunleedev.github.io/line-images/IMG_7940.JPG",
-  "Imagemapp": "https://khunleedev.github.io/line-images/Imagemapp.jpg"
-};
+/** ---------- Proxy รูปจาก GitHub Pages (เดาไฟล์อัตโนมัติ + บังคับ IPv4) ---------- */
+// โฟลเดอร์รูปของคุณบน GitHub Pages
+const GHPAGES_BASE = "https://khunleedev.github.io/line-images";
+
+// บังคับ lookup IPv4 กันบางโฮสต์/เครือข่ายที่ IPv6 มีปัญหา
+const ipv4Agent = new https.Agent({
+  lookup: (hostname, options, cb) => dns.lookup(hostname, { family: 4 }, cb),
+});
 
 /**
- * เสิร์ฟรูปแบบที่ LINE ต้องการ
- * LINE จะเรียก:  {baseUrl}/{size}  เช่น /imaps/IMG_7937/1040
- * เรา proxy ไปยังไฟล์จริงบน GitHub แล้วส่งกลับเป็น image/jpeg
+ * LINE จะเรียก: {baseUrl}/{size}  เช่น /imaps/IMG_7937/1040
+ * เราจะ "เดา" นามสกุลรูปตามที่มีจริง (.JPG/.jpg/.JPEG/.jpeg/.png/.PNG)
  */
 app.get("/imaps/:name/:size", async (req, res) => {
-  try {
-    const name = req.params.name; // เช่น 'IMG_7937'
-    const src = IMAGE_SOURCE[name];
-    if (!src) return res.sendStatus(404);
+  const { name } = req.params; // เช่น IMG_7937, Imagemapp
 
-    const resp = await axios.get(src, { responseType: "arraybuffer" });
-    // ไฟล์ของคุณเป็น .JPG ดังนั้นตั้ง Content-Type เป็น image/jpeg
-    res.set("Content-Type", "image/jpeg");
-    // (ออปชัน) ใส่ cache header เล็กน้อย
-    res.set("Cache-Control", "public, max-age=300");
-    res.send(resp.data);
-  } catch (e) {
-    console.error("IMAGE PROXY ERROR:", e?.response?.status, e?.message);
-    res.sendStatus(502);
+  const candidates = [
+    `${GHPAGES_BASE}/${name}.JPG`,
+    `${GHPAGES_BASE}/${name}.jpg`,
+    `${GHPAGES_BASE}/${name}.JPEG`,
+    `${GHPAGES_BASE}/${name}.jpeg`,
+    `${GHPAGES_BASE}/${name}.png`,
+    `${GHPAGES_BASE}/${name}.PNG`,
+  ];
+
+  for (const src of candidates) {
+    try {
+      const resp = await axios.get(src, {
+        responseType: "arraybuffer",
+        httpsAgent: ipv4Agent,
+        headers: { "User-Agent": "LINE-Bot/1" },
+        timeout: 10000, // กันแห้ง
+      });
+      const contentType = resp.headers["content-type"] || "image/jpeg";
+      res.set("Content-Type", contentType);
+      res.set("Cache-Control", "public, max-age=300");
+      return res.send(resp.data);
+    } catch (err) {
+      // ลองแคนดิเดตถัดไป
+      // ถ้าอยากดีบักเพิ่ม: console.error("Proxy fail:", src, err?.response?.status || err?.code);
+    }
   }
+
+  return res.sendStatus(404);
 });
 
 /** ---------- กำหนด Imagemap ทั้งหมด (baseUrl ชี้มาที่โดเมนเราเอง) ---------- */
 const IMAPS = {
   1: {
-    baseUrl: `${PUB}/imaps/IMG_7937`, // ไม่ใส่ .JPG ต่อท้าย
+    baseUrl: `${PUB}/imaps/IMG_7937`, // อย่าใส่ .JPG ต่อท้าย
     baseHeight: 1362,
     altText: "Imagemap 1",
     actions: [
       { type: "message", text: "Buy",              area: { x: 179, y: 529, width: 314, height: 310 } },
       { type: "message", text: "Rent",             area: { x: 589, y: 531, width: 306, height: 309 } },
       { type: "message", text: "Sell | Rent Out",  area: { x: 185, y: 911, width: 306, height: 307 } },
-      { type: "message", text: "Contact Us", area: { x: 592, y: 911, width: 304, height: 305 } },
+      { type: "message", text: "Contact Us",       area: { x: 592, y: 911, width: 304, height: 305 } },
     ]
   },
   2: {
@@ -115,7 +131,7 @@ function toImagemap(id) {
   if (!c) return null;
   return {
     type: "imagemap",
-    baseUrl: c.baseUrl, // ตอนส่งให้ LINE จะกลายเป็น {PUB}/imaps/IMG_xxxx/{size}
+    baseUrl: c.baseUrl, // LINE จะยิง {PUB}/imaps/IMG_xxxx/{size}
     altText: c.altText,
     baseSize: { width: 1040, height: c.baseHeight || 1040 },
     actions: c.actions
@@ -153,7 +169,7 @@ app.post("/webhook", async (req, res) => {
           continue;
         }
 
-        // ถ้าไม่ตรงเงื่อนไข → เงียบ (ไม่ตอบกลับ)
+        // ข้อความอื่น: เงียบ (ไม่ตอบ)
       }
     }
 
@@ -164,16 +180,12 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-// === วางต่อท้ายไฟล์ server.js ตรงนี้ ===
-
 // ส่งข้อความกลับไปยังผู้ใช้ผ่าน LINE Reply API
 async function reply(replyToken, messages) {
   const url = "https://api.line.me/v2/bot/message/reply";
-  await axios.post(
-    url,
-    { replyToken, messages },
-    { headers: { Authorization: `Bearer ${TOKEN}` } }
-  );
+  await axios.post(url, { replyToken, messages }, {
+    headers: { Authorization: `Bearer ${TOKEN}` }
+  });
 }
 
 // health check ง่าย ๆ
