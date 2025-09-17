@@ -105,7 +105,7 @@ const IMAPS = {
       { type: "message", text: "Home Service → Cleaning",           area: { x: 177, y: 405, width: 329, height: 330 } },
       { type: "message", text: "Home Service → Install, Repair",    area: { x: 573, y: 407, width: 329, height: 334 } },
       { type: "message", text: "Home Service → Swimming Pool",      area: { x: 176, y: 774, width: 329, height: 329 } },
-      { type: "message", text: "Home Service → Home Improvements",  area: { x: 572, y: 772, width: 328, height: 328 } },
+      { type: "message", text: "Home Service → Home Improver",  area: { x: 572, y: 772, width: 328, height: 328 } },
       { type: "message", text: "Home Service → Garden Manager",  area: { x: 182, y: 1129, width: 716, height: 190 } },
     ]
   },
