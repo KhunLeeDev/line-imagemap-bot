@@ -2,80 +2,64 @@
 require("dotenv").config();
 const express = require("express");
 const axios = require("axios");
-const https = require("https");
-const dns = require("dns");
 
 const app = express();
 app.use(express.json());
 
 const TOKEN = process.env.LINE_TOKEN;
-const PORT = process.env.PORT || 3000;
-const PUB  = process.env.PUBLIC_BASE; // เช่น https://<your-service>.onrender.com
+const PORT  = process.env.PORT || 3000;
 
 /** ---------- สำหรับปุ่ม Verify ของ LINE (GET /webhook) ---------- */
 app.get("/webhook", (req, res) => res.status(200).send("OK"));
 
-/** ---------- Proxy รูปจาก GitHub Pages (เดาไฟล์อัตโนมัติ + บังคับ IPv4) ---------- */
-// โฟลเดอร์รูปของคุณบน GitHub Pages
+/** ---------- แหล่งรูป: GitHub Pages ---------- */
 const GHPAGES_BASE = "https://khunleedev.github.io/line-images";
 
-// บังคับ lookup IPv4 กันบางโฮสต์/เครือข่ายที่ IPv6 มีปัญหา
-const ipv4Agent = new https.Agent({
-  lookup: (hostname, options, cb) => dns.lookup(hostname, { family: 4 }, cb),
-});
+/**
+ * เรารู้โครงชื่อไฟล์แน่นอน:
+ * - IMG_7937/7938/7939/7940 -> .JPG (ตัวใหญ่)
+ * - Imagemapp -> .jpg (ตัวเล็ก)
+ * เลย map นามสกุลแน่นอน เพื่อตัดปัญหาเช็ค HEAD/GET ใดๆ
+ */
+const IMAGE_EXT = {
+  "IMG_7937": "JPG",
+  "IMG_7938": "JPG",
+  "IMG_7939": "JPG",
+  "IMG_7940": "JPG",
+  "Imagemapp": "jpg",
+};
 
 /**
  * LINE จะเรียก: {baseUrl}/{size}  เช่น /imaps/IMG_7937/1040
- * เราจะ "เดา" นามสกุลรูปตามที่มีจริง (.JPG/.jpg/.JPEG/.jpeg/.png/.PNG)
+ * เราจะตอบ 302 Redirect ให้ LINE ไปโหลดรูปจาก GitHub Pages โดยตรง
  */
-app.get("/imaps/:name/:size", async (req, res) => {
+app.get("/imaps/:name/:size", (req, res) => {
   const { name } = req.params; // เช่น IMG_7937, Imagemapp
+  const ext = IMAGE_EXT[name] || "JPG"; // กันเหนียว default .JPG
+  const url = `${GHPAGES_BASE}/${name}.${ext}`;
 
-  const candidates = [
-    `${GHPAGES_BASE}/${name}.JPG`,
-    `${GHPAGES_BASE}/${name}.jpg`,
-    `${GHPAGES_BASE}/${name}.JPEG`,
-    `${GHPAGES_BASE}/${name}.jpeg`,
-    `${GHPAGES_BASE}/${name}.png`,
-    `${GHPAGES_BASE}/${name}.PNG`,
-  ];
+  // log ให้เช็คใน Render Logs ได้
+  console.log("[IMAP-REDIRECT]", name, "->", url);
 
-  for (const src of candidates) {
-    try {
-      const resp = await axios.get(src, {
-        responseType: "arraybuffer",
-        httpsAgent: ipv4Agent,
-        headers: { "User-Agent": "LINE-Bot/1" },
-        timeout: 10000, // กันแห้ง
-      });
-      const contentType = resp.headers["content-type"] || "image/jpeg";
-      res.set("Content-Type", contentType);
-      res.set("Cache-Control", "public, max-age=300");
-      return res.send(resp.data);
-    } catch (err) {
-      // ลองแคนดิเดตถัดไป
-      // ถ้าอยากดีบักเพิ่ม: console.error("Proxy fail:", src, err?.response?.status || err?.code);
-    }
-  }
-
-  return res.sendStatus(404);
+  // ส่ง 302 ให้ LINE ไปโหลดรูปเอง
+  return res.redirect(302, url);
 });
 
-/** ---------- กำหนด Imagemap ทั้งหมด (baseUrl ชี้มาที่โดเมนเราเอง) ---------- */
+/** ---------- IMAGEMAPs (เก็บชื่อรูป แล้วประกอบ baseUrl ตอนตอบ) ---------- */
 const IMAPS = {
   1: {
-    baseUrl: `${PUB}/imaps/IMG_7937`, // อย่าใส่ .JPG ต่อท้าย
+    img: "IMG_7937",
     baseHeight: 1362,
     altText: "Imagemap 1",
     actions: [
-      { type: "message", text: "Buy",              area: { x: 179, y: 529, width: 314, height: 310 } },
-      { type: "message", text: "Rent",             area: { x: 589, y: 531, width: 306, height: 309 } },
-      { type: "message", text: "Sell | Rent Out",  area: { x: 185, y: 911, width: 306, height: 307 } },
-      { type: "message", text: "Contact Us",       area: { x: 592, y: 911, width: 304, height: 305 } },
+      { type: "message", text: "Buy",             area: { x: 179, y: 529, width: 314, height: 310 } },
+      { type: "message", text: "Rent",            area: { x: 589, y: 531, width: 306, height: 309 } },
+      { type: "message", text: "Sell | Rent Out", area: { x: 185, y: 911, width: 306, height: 307 } },
+      { type: "message", text: "Contact Us",      area: { x: 592, y: 911, width: 304, height: 305 } },
     ]
   },
   2: {
-    baseUrl: `${PUB}/imaps/IMG_7938`,
+    img: "IMG_7938",
     baseHeight: 1362,
     altText: "Imagemap 2 (Buy)",
     actions: [
@@ -88,7 +72,7 @@ const IMAPS = {
     ]
   },
   3: {
-    baseUrl: `${PUB}/imaps/IMG_7939`,
+    img: "IMG_7939",
     baseHeight: 1363,
     altText: "Imagemap 3 (Rent)",
     actions: [
@@ -101,7 +85,7 @@ const IMAPS = {
     ]
   },
   4: {
-    baseUrl: `${PUB}/imaps/IMG_7940`,
+    img: "IMG_7940",
     baseHeight: 1322,
     altText: "Imagemap 4 (Service)",
     actions: [
@@ -113,7 +97,7 @@ const IMAPS = {
     ]
   },
   5: {
-    baseUrl: `${PUB}/imaps/Imagemapp`,
+    img: "Imagemapp",
     baseHeight: 1319,
     altText: "Imagemap 5 (Home Service)",
     actions: [
@@ -126,18 +110,6 @@ const IMAPS = {
   },
 };
 
-function toImagemap(id) {
-  const c = IMAPS[id];
-  if (!c) return null;
-  return {
-    type: "imagemap",
-    baseUrl: c.baseUrl, // LINE จะยิง {PUB}/imaps/IMG_xxxx/{size}
-    altText: c.altText,
-    baseSize: { width: 1040, height: c.baseHeight || 1040 },
-    actions: c.actions
-  };
-}
-
 // ข้อความที่ทำให้เด้งไป imagemap ตามเงื่อนไข
 const TEXT_TO_IMAP = {
   "Buy": 2,
@@ -149,6 +121,31 @@ const TEXT_TO_IMAP = {
 // คำเริ่มต้น flow
 const START_WORDS = new Set(["เมนู", "สนใจ", "start", "Start"]);
 
+/** ---------- Helper: สร้าง PUBLIC BASE เป็น https เสมอ ---------- */
+function getPublicBase(req) {
+  let base = process.env.PUBLIC_BASE;
+  if (!base || !/^https:\/\//i.test(base)) {
+    const host = req.headers.host; // <service>.onrender.com
+    base = `https://${host}`;
+  }
+  return base.replace(/\/+$/, "");
+}
+
+/** ---------- สร้าง payload imagemap ตอนตอบกลับ ---------- */
+function toImagemap(id, req) {
+  const c = IMAPS[id];
+  if (!c) return null;
+  const base = getPublicBase(req);
+  console.log("Using base:", base, "for imagemap id:", id);
+  return {
+    type: "imagemap",
+    baseUrl: `${base}/imaps/${c.img}`, // LINE จะเติม /{size} เอง
+    altText: c.altText,
+    baseSize: { width: 1040, height: c.baseHeight || 1040 },
+    actions: c.actions
+  };
+}
+
 /** ---------- Webhook รับอีเวนต์จาก LINE ---------- */
 app.post("/webhook", async (req, res) => {
   try {
@@ -159,13 +156,13 @@ app.post("/webhook", async (req, res) => {
         const text = (ev.message.text || "").trim();
 
         if (START_WORDS.has(text)) {
-          await reply(ev.replyToken, [toImagemap(1)]);
+          await reply(ev.replyToken, [toImagemap(1, req)]);
           continue;
         }
 
         const target = TEXT_TO_IMAP[text];
         if (target) {
-          await reply(ev.replyToken, [toImagemap(target)]);
+          await reply(ev.replyToken, [toImagemap(target, req)]);
           continue;
         }
 
@@ -173,14 +170,14 @@ app.post("/webhook", async (req, res) => {
       }
     }
 
-    res.sendStatus(200); // ตอบ 200 เสมอ
+    res.sendStatus(200);
   } catch (e) {
     console.error("WEBHOOK ERROR:", e?.response?.data || e);
     res.sendStatus(200);
   }
 });
 
-// ส่งข้อความกลับไปยังผู้ใช้ผ่าน LINE Reply API
+/** ---------- ส่งข้อความกลับไปยังผู้ใช้ผ่าน LINE Reply API ---------- */
 async function reply(replyToken, messages) {
   const url = "https://api.line.me/v2/bot/message/reply";
   await axios.post(url, { replyToken, messages }, {
@@ -188,10 +185,10 @@ async function reply(replyToken, messages) {
   });
 }
 
-// health check ง่าย ๆ
+/** ---------- Health check ---------- */
 app.get("/", (_, res) => res.send("OK"));
 
-// เริ่มฟังพอร์ต
+/** ---------- Start server ---------- */
 app.listen(PORT, () => {
   console.log("Webhook running on port", PORT);
 });
