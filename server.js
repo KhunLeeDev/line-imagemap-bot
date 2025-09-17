@@ -63,7 +63,7 @@ const IMAPS = {
     baseHeight: 1362,
     altText: "Imagemap 2 (Buy)",
     actions: [
-      { type: "message", text: "Buy → Condo",               area: { x: 187, y: 290, width: 308, height: 308 } },
+      { type: "message", text: "Buy → Condo",               area: { x: 492, y: 599, width: 188, height: 293 } },
       { type: "message", text: "Buy → Pool Villa",          area: { x: 590, y: 292, width: 307, height: 315 } },
       { type: "message", text: "Buy → Single House",        area: { x: 186, y: 671, width: 310, height: 310 } },
       { type: "message", text: "Buy → Townhome",            area: { x: 594, y: 668, width: 307, height: 316 } },
